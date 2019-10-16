@@ -13,11 +13,13 @@ const USE_ANIMATION = false;
 const maxDensity = 2 / 10;
 // Density of maximum flow
 const peakDensity = maxDensity / 3;
+const inflowDensity = peakDensity * (2 / 3);
 // 20 vehicles per 60 seconds
-const peakFlow = 40 / 60;
+const peakFlow = 120 / 60;
 const TIME_BOUNDS = [-100, 150];
 const POSITION_BOUNDS = [-100, 1000];
-const NUM_STEPS = 400;
+const NUM_STEPS = 600;
+const STEP_SIZE = 0.1; // seconds
 
 function cross(a, b) {
   // cross product of two 2D vectors is just the magnitude for a 3x3 vector pointing out perpendicular to the two input vectors.
@@ -127,8 +129,10 @@ if (INVARIANT_CHECKS) {
   if (flowOfDensity(maxDensity) !== 0) {
     throw new Error(`max density should have flow of zero`);
   }
-  if (flowOfDensity(peakDensity) !== peakFlow) {
-    throw new Error(`peak density should equity peak flow instead got ${flowOfDensity(peakDensity)}`);
+  if (Math.abs(flowOfDensity(peakDensity) - peakFlow) > 0.000001) {
+    console.error(`flowOfDensity(peakDensity)`, flowOfDensity(peakDensity));
+    console.error(`peakFlow`, peakFlow);
+    throw new Error(`peak density should equal peak flow instead got ${flowOfDensity(peakDensity)}`);
   }
 }
 
@@ -152,10 +156,12 @@ function initState() {
       }
     ]),
     vehicles: [...Array(400).keys()].map(index => {
+      const density = inflowDensity; // vehicles / meter
+      const spacing = 1 / density; // meters / vehicle
       return {
         id: index + 1,
-        position: 400 - 20 * index + 0.01, // meters
-        velocity: 10, // meters / sec (~25 miles / hour)
+        position: 400.01 - spacing * index, // meters
+        velocity: flowOfDensity(density) / density,
         blockedByEvent: undefined,
         status: undefined,
       }
@@ -174,7 +180,7 @@ function getInterfaces(events, flowOfDensity, timeBounds, positionBounds, startV
     densityBelow: undefined,
   };
 
-  const density = 1 / 100000;
+  const density = inflowDensity;
   const start = [0, startVehiclePosition];
   const velocity = flowOfDensity(density) / density;
   const ray = [
@@ -207,16 +213,23 @@ function getInterfaces(events, flowOfDensity, timeBounds, positionBounds, startV
     let qu = flowOfDensity(ku);
     let kj = densityBelow;
     let qj = flowOfDensity(kj);
-    console.log('ku', ku, 'qu', qu, 'kj', kj, 'qj', qj);
-    const frontInterfaceSlope = (qu - qj) / (ku - kj);
-    console.log('frontInterfaceSlope', frontInterfaceSlope);
+    const frontInterfaceSlope = (qj - qu) / (kj - ku);
     interfaces.push({
-      coordinates: [ start, add(start, scale([1, frontInterfaceSlope], 100)) ],
+      coordinates: [ start, add(start, scale([1, frontInterfaceSlope], 200)) ],
       densityAbove: densityBelow,
       densityBelow: closestInterface.densityBelow,
     });
+    ku = densityBelow;
+    qu = flowOfDensity(ku);
+    kj = peakDensity;
+    qj = flowOfDensity(kj);
+    const backInterfaceSlope = (qj - qu) / (kj - ku);
+    interfaces.push({
+      coordinates: [ end, add(end, scale([1, backInterfaceSlope], 200)) ],
+      densityAbove: peakDensity,
+      densityBelow: densityBelow,
+    });
   });
-  console.log(interfaces);
   return interfaces;
 }
 
@@ -293,7 +306,7 @@ class App extends React.Component {
     this.timestamp = Date.now() / 1000;
     this._simulationState = initState();
     this._history = [this._simulationState];
-    let dt = 0.5; // second
+    let dt = STEP_SIZE; // second
     if (!USE_ANIMATION) {
       for (let i = 0; i < NUM_STEPS; i++) {
         this._simulationState = nextState(this._simulationState, dt);
@@ -301,9 +314,9 @@ class App extends React.Component {
       }
     }
     this.state = {
-      scale: 0.4,
-      xOffset: 1300,
-      yOffset: -600,
+      scale: 2,
+      xOffset: 180,
+      yOffset: -10,
       simulation: this._simulationState,
       history: this._history,
       width: window.innerWidth,
@@ -530,7 +543,6 @@ class FundementalDiagram extends React.Component {
       }
       data.push([x, y]);
     }
-    console.log(data.map(([x,y]) => y));
     const scaleX = d3.scaleLinear().domain([minX, maxX]).range([padding.left, width - padding.right]);
     const scaleY = d3.scaleLinear().domain([minY, maxY]).range([height - padding.bottom, padding.top]);
     this._axisX = d3.axisBottom(scaleX).ticks(2);
